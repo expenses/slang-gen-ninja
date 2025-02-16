@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(slang-cacher)
+project(slang-gen-ninja)
 
 # Find Slang
 find_package(slang REQUIRED)
@@ -17,7 +17,7 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 endif()
 
 # Add executable
-add_executable(slang-cacher src/main.cpp)
-target_precompile_headers(slang-cacher PRIVATE src/pch.h)
+add_executable(slang-gen-ninja src/main.cpp)
+target_precompile_headers(slang-gen-ninja PRIVATE src/pch.h)
 # Link Slang
-target_link_libraries(slang-cacher slang::slang)
+target_link_libraries(slang-gen-ninja slang::slang)

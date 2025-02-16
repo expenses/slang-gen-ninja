@@ -22,16 +22,16 @@
         devShells.default = with pkgs;
           mkShell {
             nativeBuildInputs = [cmake ninja gdb clang-tools];
-            buildInputs = [shader-slang argparse dbg-macro tbb_2021_11 hotspot linuxPackages_latest.perf];
+            buildInputs = [shader-slang argparse dbg-macro hotspot linuxPackages_latest.perf];
           };
         packages.default = with pkgs; stdenv.mkDerivation {
-          name = "slang-cacher";
+          name = "slang-gen-ninja";
           nativeBuildInputs = [cmake];
           buildInputs = [shader-slang argparse];
-          src = ./.;
+          src = lib.cleanSource ./.;
           installPhase = ''
             mkdir -p $out/bin
-            cp slang-cacher $out/bin
+            cp slang-gen-ninja $out/bin
           '';
         };
         packages.slang = pkgs.shader-slang;

@@ -7,13 +7,11 @@ void diagnoseIfNeeded(slang::IBlob *diagnosticsBlob) {
     }
 }
 
-#include <dbg.h>
-
 void emit_build_line(std::ofstream &ninja_file,
                      std::filesystem::path &build_dir, slang::IModule *module,
                      const char *filename,
-                     std::filesystem::path& build_script_dir,
-                     int index, const char *ext) {
+                     std::filesystem::path &build_script_dir, int index,
+                     std::string_view ext) {
     auto filepath = std::filesystem::path(module->getDependencyFilePath(index));
 
     if (filepath.extension() == ".slangh") {
@@ -22,57 +20,50 @@ void emit_build_line(std::ofstream &ninja_file,
 
     ninja_file << "build "
                << (build_dir / filename).replace_extension(ext).c_str()
-               << ": slang " << std::filesystem::relative(filepath, build_script_dir).c_str();
+               << ": slang "
+               << std::filesystem::relative(filepath, build_script_dir).c_str();
 
     auto num_deps = module->getDependencyFileCount();
 
-    if ((index + 1) < num_deps) {
-        ninja_file << " |";
-    }
+    auto write_any_dep = false;
 
     for (auto i = index + 1; i < num_deps; i++) {
         filepath = module->getDependencyFilePath(i);
         if (filepath.extension() == ".slangh") {
             continue;
         }
+        if (!write_any_dep) {
+            ninja_file << " |";
+            write_any_dep = true;
+        }
         auto path =
-            build_dir / filepath.filename() /
-            filepath.filename().replace_extension(
-                "slang-module");
-            ninja_file << " " << path.c_str();
+            build_dir / filepath.filename().replace_extension("slang-module");
+        ninja_file << " " << path.c_str();
     }
-
     ninja_file << std::endl;
-    ninja_file << "    includes = ";
-    for (auto i = index + 1; i < num_deps; i++) {
-        filepath = module->getDependencyFilePath(i);
-        if (filepath.extension() == ".slangh") {
-            continue;
-        }
-        auto path =
-            build_dir / filepath.filename();
-        ninja_file << "-I " << path.c_str() << " ";
-    }
-
-    ninja_file  << std::endl;
 }
 
 int main(int argc, char **argv) {
-    argparse::ArgumentParser program("slang-cacher");
+    argparse::ArgumentParser program("slang-gen-ninja");
     program.add_argument("shader-files")
         .nargs(argparse::nargs_pattern::at_least_one);
     program.add_argument("-o", "--output").required();
     program.add_argument("-b", "--build-dir").required();
-    program.add_argument("-f", "--filetypes").nargs(argparse::nargs_pattern::at_least_one).default_value("spv");
+    program.add_argument("-f", "--filetypes")
+        .nargs(argparse::nargs_pattern::at_least_one)
+        .default_value("spv");
     program.add_argument("-I").append();
     program.add_argument("-D").append();
+    program.add_argument("-m", "--use-modules")
+      .default_value(false)
+      .implicit_value(true);
 
     // Find the position of "--" if it exists
-    auto it = std::find_if(argv, argv + argc, [](const char *arg) {
-        return strcmp(arg, "--") == 0;
-    });
+    auto extra_args_iterator =
+        std::find_if(argv, argv + argc,
+                     [](const char *arg) { return strcmp(arg, "--") == 0; });
 
-    auto program_argc = it - argv;
+    auto program_argc = extra_args_iterator - argv;
 
     try {
         program.parse_args(program_argc, argv);
@@ -89,44 +80,39 @@ int main(int argc, char **argv) {
     auto build_script_dir = output_filename.parent_path();
 
     auto build_dir = std::filesystem::relative(
-
         std::filesystem::path(program.get<std::string>("--build-dir")),
-        build_script_dir
-    );
+        build_script_dir);
 
     auto filetypes = program.get<std::vector<std::string>>("--filetypes");
 
     auto includes = program.get<std::vector<std::string>>("-I");
     auto defines = program.get<std::vector<std::string>>("-D");
-    dbg(includes);
-    dbg(defines);
 
-    auto split_defines = defines | std::views::transform([](auto& define) {
-        auto pos = define.find("=");
-        return std::make_pair(std::string(define.substr(0, pos)), std::string(define.substr(pos+1)));
-    }) | std::ranges::to<std::vector>();
+    auto split_defines =
+        defines | std::views::transform([](auto &define) {
+            auto pos = define.find("=");
+            return std::make_pair(std::string(define.substr(0, pos)),
+                                  std::string(define.substr(pos + 1)));
+        }) |
+        std::ranges::to<std::vector>();
 
-    std::vector<slang::PreprocessorMacroDesc> slang_defines = split_defines | std::views::transform([](auto& pair) {
-        const auto& [name, value] = pair;
-        return slang::PreprocessorMacroDesc{
-            .name = name.data(),
-            .value = value.data()
-        };
-    }) | std::ranges::to<std::vector>();
-
-    for (auto& define: slang_defines) {
-        dbg(define.name, define.value);
-    }
+    std::vector<slang::PreprocessorMacroDesc> slang_defines =
+        split_defines | std::views::transform([](auto &pair) {
+            const auto &[name, value] = pair;
+            return slang::PreprocessorMacroDesc{.name = name.data(),
+                                                .value = value.data()};
+        }) |
+        std::ranges::to<std::vector>();
 
     std::string args = "";
 
-    if (it != argv + argc) {
-        it++;
+    if (extra_args_iterator != argv + argc) {
+        extra_args_iterator++;
 
-        while (it != argv + argc) {
-            args += *it;
+        while (extra_args_iterator != argv + argc) {
+            args += *extra_args_iterator;
             args += " ";
-            it++;
+            extra_args_iterator++;
         }
     }
 
@@ -174,14 +160,17 @@ int main(int argc, char **argv) {
 
     auto ninja_file = std::ofstream(output_filename);
 
-    ninja_file << "includes =" << std::endl;
     ninja_file << "rule slang" << std::endl;
-    ninja_file << "    command = slangc $in -o $out $includes"
-               << " " << args;
-    for (auto& include: includes) {
-        ninja_file << " " << "-I" << std::filesystem::relative(include, build_script_dir).c_str();
+    ninja_file << "    command = slangc $in -o $out " << args;
+    if (program.get<bool>("--use-modules")) {
+        ninja_file << " -I" << build_dir.c_str();
     }
-    for (auto& define: defines) {
+    for (auto &include : includes) {
+        ninja_file
+            << " " << "-I"
+            << std::filesystem::relative(include, build_script_dir).c_str();
+    }
+    for (auto &define : defines) {
         ninja_file << " -D" << define;
     }
     ninja_file << std::endl;
@@ -227,29 +216,21 @@ int main(int argc, char **argv) {
         for (auto i = 1; i < num_deps; i++) {
             auto filepath = module->getDependencyFilePath(i);
 
-
             if (seen.contains(filepath)) {
                 break;
             }
 
             seen.insert(filepath);
 
-            std::cout << filepath << std::endl;
-
             auto filename = std::filesystem::path(filepath).filename();
-            //auto f_dir = build_dir / filename;
 
-            emit_build_line(ninja_file, build_dir, module,
-                            (filename / filename).c_str(),
-                            build_script_dir,
-                            i, "slang-module");
+            emit_build_line(ninja_file, build_dir, module, filename.c_str(),
+                            build_script_dir, i, "slang-module");
         }
 
-        std::cout << std::endl;
-
-        for (auto& filetype: filetypes) {
-            emit_build_line(ninja_file, build_dir, module, filename.c_str(), build_script_dir, 0,
-                            filetype.data());
+        for (auto &filetype : filetypes) {
+            emit_build_line(ninja_file, build_dir, module, filename.c_str(),
+                            build_script_dir, 0, filetype);
         }
     }
 }
