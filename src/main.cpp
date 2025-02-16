@@ -51,12 +51,12 @@ int main(int argc, char **argv) {
     program.add_argument("-b", "--build-dir").required();
     program.add_argument("-f", "--filetypes")
         .nargs(argparse::nargs_pattern::at_least_one)
-        .default_value("spv");
+        .default_value(std::vector<std::string>{std::string("spv")});
     program.add_argument("-I").append();
     program.add_argument("-D").append();
     program.add_argument("-m", "--use-modules")
-      .default_value(false)
-      .implicit_value(true);
+        .default_value(false)
+        .implicit_value(true);
 
     // Find the position of "--" if it exists
     auto extra_args_iterator =
@@ -162,13 +162,13 @@ int main(int argc, char **argv) {
 
     ninja_file << "rule slang" << std::endl;
     ninja_file << "    command = slangc $in -o $out " << args;
-    if (program.get<bool>("--use-modules")) {
-        ninja_file << " -I" << build_dir.c_str();
-    }
     for (auto &include : includes) {
         ninja_file
             << " " << "-I"
             << std::filesystem::relative(include, build_script_dir).c_str();
+    }
+    if (program.get<bool>("--use-modules")) {
+        ninja_file << " -I" << build_dir.c_str();
     }
     for (auto &define : defines) {
         ninja_file << " -D" << define;
