@@ -1,0 +1,14 @@
+#include "slang-com-helper.h"
+#include "slang-com-ptr.h"
+#include "slang.h"
+#include <argparse/argparse.hpp>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <execution>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <ranges>
+#include <unordered_set>
+#include <vector>
