@@ -11,7 +11,9 @@ void emit_build_line(std::ofstream &ninja_file,
                      std::filesystem::path &build_dir, slang::IModule *module,
                      const char *filename,
                      std::filesystem::path &build_script_dir, int index,
-                     std::string_view ext) {
+                     std::string_view ext,
+                     bool use_modules
+) {
     auto filepath = std::filesystem::path(module->getDependencyFilePath(index));
 
     if (filepath.extension() == ".slangh") {
@@ -36,9 +38,12 @@ void emit_build_line(std::ofstream &ninja_file,
             ninja_file << " |";
             write_any_dep = true;
         }
-        auto path =
-            build_dir / filepath.filename().replace_extension("slang-module");
-        ninja_file << " " << path.c_str();
+        if (use_modules) {
+            filepath = build_dir / filepath.filename().replace_extension("slang-module");
+        } else {
+            filepath = std::filesystem::relative(filepath, build_script_dir);
+        }
+        ninja_file << " " << filepath.c_str();
     }
     ninja_file << std::endl;
 }
@@ -167,7 +172,8 @@ int main(int argc, char **argv) {
             << " " << "-I"
             << std::filesystem::relative(include, build_script_dir).c_str();
     }
-    if (program.get<bool>("--use-modules")) {
+    auto use_modules = program.get<bool>("--use-modules");
+    if (use_modules) {
         ninja_file << " -I" << build_dir.c_str();
     }
     for (auto &define : defines) {
@@ -213,24 +219,26 @@ int main(int argc, char **argv) {
         seen.insert(filepath);
 
         // Emit the build lines for all dependencies.
-        for (auto i = 1; i < num_deps; i++) {
-            auto filepath = module->getDependencyFilePath(i);
+        if (use_modules) {
+            for (auto i = 1; i < num_deps; i++) {
+                auto filepath = module->getDependencyFilePath(i);
 
-            if (seen.contains(filepath)) {
-                break;
+                if (seen.contains(filepath)) {
+                    break;
+                }
+
+                seen.insert(filepath);
+
+                auto filename = std::filesystem::path(filepath).filename();
+
+                emit_build_line(ninja_file, build_dir, module, filename.c_str(),
+                                build_script_dir, i, "slang-module", use_modules);
             }
-
-            seen.insert(filepath);
-
-            auto filename = std::filesystem::path(filepath).filename();
-
-            emit_build_line(ninja_file, build_dir, module, filename.c_str(),
-                            build_script_dir, i, "slang-module");
         }
 
         for (auto &filetype : filetypes) {
             emit_build_line(ninja_file, build_dir, module, filename.c_str(),
-                            build_script_dir, 0, filetype);
+                            build_script_dir, 0, filetype, use_modules);
         }
     }
 }
