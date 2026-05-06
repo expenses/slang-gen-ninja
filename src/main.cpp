@@ -62,6 +62,9 @@ int main(int argc, char **argv) {
     program.add_argument("-m", "--use-modules")
         .default_value(false)
         .implicit_value(true);
+    program.add_argument("-x", "--experimental-feature")
+        .default_value(false)
+        .implicit_value(true);
 
     // Find the position of "--" if it exists
     auto extra_args_iterator =
@@ -151,12 +154,25 @@ int main(int argc, char **argv) {
     Slang::ComPtr<slang::IGlobalSession> globalSession;
     createGlobalSession(globalSession.writeRef());
 
+    auto experimental_feature = program.get<bool>("--experimental-feature");
+
+    std::array<slang::CompilerOptionEntry, 1> options = {
+        slang::CompilerOptionEntry {
+            .name = slang::CompilerOptionName::ExperimentalFeature,
+            .value = slang::CompilerOptionValue {
+                .intValue0 = experimental_feature,
+            },
+        }
+    };
+
     // 2. Create Session
     slang::SessionDesc sessionDesc = {};
     sessionDesc.searchPaths = search_path_strings.data();
     sessionDesc.searchPathCount = search_path_strings.size();
     sessionDesc.preprocessorMacros = slang_defines.data();
     sessionDesc.preprocessorMacroCount = slang_defines.size();
+    sessionDesc.compilerOptionEntries = options.data();
+    sessionDesc.compilerOptionEntryCount = options.size();
 
     Slang::ComPtr<slang::ISession> session;
     globalSession->createSession(sessionDesc, session.writeRef());
@@ -175,6 +191,9 @@ int main(int argc, char **argv) {
     auto use_modules = program.get<bool>("--use-modules");
     if (use_modules) {
         ninja_file << " -I" << build_dir.c_str();
+    }
+    if (experimental_feature) {
+        ninja_file << " -experimental-feature";
     }
     for (auto &define : defines) {
         ninja_file << " -D" << define;
